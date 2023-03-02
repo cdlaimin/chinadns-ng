@@ -140,9 +140,11 @@ static void handle_local_packet(void) {
             if (g_noaaaa_query & NOAAAA_TRUST_DNS && qtype == DNS_RECORD_TYPE_AAAA) continue;
             send_times = g_repeat_times;
         }
+        const skaddr_u *addr = &g_remote_skaddrs[i];
+        socklen_t addrlen = skaddr_size(addr);
         for (int j = 0; j < send_times; ++j) {
             LOGV("forward [%s] to %s (%s)", s_name_buf, g_remote_ipports[i], is_chinadns_idx(i) ? "chinadns" : "trustdns");
-            unlikely_if (send(s_remote_sockfds[i], s_packet_buf, packet_len, 0) < 0)
+            unlikely_if (sendto(s_remote_sockfds[i], s_packet_buf, packet_len, 0, &addr->sa, addrlen) < 0)
                 LOGE("failed to send dns query packet to %s: (%d) %s", g_remote_ipports[i], errno, strerror(errno));
         }
     }
@@ -177,7 +179,7 @@ static inline bool accept_chinadns_reply(const void *noalias packet_buf, ssize_t
 static void handle_remote_packet(int index) {
     int remote_sockfd = s_remote_sockfds[index];
     const char *remote_ipport = g_remote_ipports[index];
-    ssize_t packet_len = recv(remote_sockfd, s_packet_buf, DNS_PACKET_MAXSIZE, 0);
+    ssize_t packet_len = recvfrom(remote_sockfd, s_packet_buf, DNS_PACKET_MAXSIZE, 0, NULL, NULL);
 
     if (packet_len < 0) {
         unlikely_if (errno != EAGAIN && errno != EWOULDBLOCK)
@@ -295,13 +297,13 @@ int main(int argc, char *argv[]) {
     ipset_init_nlsocket();
 
     /* create listen socket */
-    s_bind_sockfd = new_udp_socket(skaddr_family(&g_bind_skaddr), NULL);
+    s_bind_sockfd = new_udp_socket(skaddr_family(&g_bind_skaddr));
     if (g_reuse_port) set_reuse_port(s_bind_sockfd);
 
     /* create remote socket */
     for (int i = 0; i <= SERVER_MAXIDX; ++i) {
         if (*g_remote_ipports[i])
-            s_remote_sockfds[i] = new_udp_socket(skaddr_family(&g_remote_skaddrs[i]), &g_remote_skaddrs[i]);
+            s_remote_sockfds[i] = new_udp_socket(skaddr_family(&g_remote_skaddrs[i]));
     }
 
     /* bind address to listen socket */
